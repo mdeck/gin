@@ -226,3 +226,39 @@ func (group *RouterGroup) returnObj() IRoutes {
 	}
 	return group
 }
+
+// StaticFS works just like `Static()` but a custom `http.FileSystem` can be used instead.
+// Gin by default user: gin.Dir()
+func (group *RouterGroup) StaticFSRedirect(relativePath string, fs http.FileSystem, redirectRoot string) IRoutes {
+	if strings.Contains(relativePath, ":") || strings.Contains(relativePath, "*") {
+		panic("URL parameters can not be used when serving a static folder")
+	}
+	handler := group.createStaticHandlerRedirect(relativePath, fs, redirectRoot)
+	urlPattern := path.Join(relativePath, "/*filepath")
+
+	// Register GET and HEAD handlers
+	group.GET(urlPattern, handler)
+	group.HEAD(urlPattern, handler)
+	return group.returnObj()
+}
+
+func (group *RouterGroup) createStaticHandlerRedirect(relativePath string, fs http.FileSystem, redirectRoot string) HandlerFunc {
+	absolutePath := group.calculateAbsolutePath(relativePath)
+	fileServer := http.StripPrefix(absolutePath, http.FileServer(fs))
+
+	return func(c *Context) {
+		if _, nolisting := fs.(*onlyfilesFS); nolisting {
+			c.Writer.WriteHeader(http.StatusNotFound)
+		}
+
+		file := c.Param("filepath")
+		// Check if file exists and/or if we have permission to access it
+		if _, err := fs.Open(file); err != nil {
+			c.Redirect(http.StatusTemporaryRedirect, redirectRoot+c.Request.RequestURI)
+			c.Abort()
+			return
+		}
+
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	}
+}
