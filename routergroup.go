@@ -262,3 +262,48 @@ func (group *RouterGroup) createStaticHandlerRedirect(relativePath string, fs ht
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	}
 }
+
+// StaticFSLayers()
+
+// StaticFS works just like `Static()` but a custom `http.FileSystem` can be used instead.
+// Gin by default user: gin.Dir()
+func (group *RouterGroup) StaticFSLayers(relativePath string, layers []http.FileSystem, redirectRoot string) IRoutes {
+	if strings.Contains(relativePath, ":") || strings.Contains(relativePath, "*") {
+		panic("URL parameters can not be used when serving a static folder")
+	}
+	handler := group.createStaticHandlerLayers(relativePath, layers, redirectRoot)
+	urlPattern := path.Join(relativePath, "/*filepath")
+
+	// Register GET and HEAD handlers
+	group.GET(urlPattern, handler)
+	group.HEAD(urlPattern, handler)
+	return group.returnObj()
+}
+
+func (group *RouterGroup) createStaticHandlerLayers(relativePath string, layers []http.FileSystem, redirectRoot string) HandlerFunc {
+	absolutePath := group.calculateAbsolutePath(relativePath)
+	fileServers := make([]http.Handler, len(layers))
+	for idx := range layers {
+		fileServers[idx] = http.StripPrefix(absolutePath, http.FileServer(layers[idx]))
+	}
+
+	return func(c *Context) {
+		for idx := range fileServers {
+			fs := layers[idx]
+			fileServer := fileServers[idx]
+
+			file := c.Param("filepath")
+			// Check if file exists and/or if we have permission to access it
+			if _, err := fs.Open(file); err == nil {
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+		}
+
+		if len(redirectRoot) > 0 {
+			c.Redirect(http.StatusTemporaryRedirect, redirectRoot+c.Request.RequestURI)
+		} else {
+			c.AbortWithStatus(http.StatusNotFound)
+		}
+	}
+}
