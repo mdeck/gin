@@ -288,11 +288,15 @@ func (group *RouterGroup) createStaticHandlerLayers(relativePath string, layers 
 	}
 
 	return func(c *Context) {
+		file := c.Param("filepath")
 		for idx := range fileServers {
 			fs := layers[idx]
 			fileServer := fileServers[idx]
 
-			file := c.Param("filepath")
+			if _, nolisting := fs.(*onlyfilesFS); nolisting {
+				//
+			}
+
 			// Check if file exists and/or if we have permission to access it
 			if _, err := fs.Open(file); err == nil {
 				fileServer.ServeHTTP(c.Writer, c.Request)
